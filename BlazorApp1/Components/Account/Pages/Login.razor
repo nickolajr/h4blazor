@@ -4,6 +4,7 @@
 @using Microsoft.AspNetCore.Authentication
 @using Microsoft.AspNetCore.Identity
 @using BlazorApp1.Data
+@using BlazorApp1.Models
 
 @inject SignInManager<ApplicationUser> SignInManager
 @inject ILogger<Login> Logger
@@ -87,12 +88,16 @@
 
     public async Task LoginUser()
     {
-        // This doesn't count login failures towards account lockout
-        // To enable password failures to trigger account lockout, set lockoutOnFailure: true
         var result = await SignInManager.PasswordSignInAsync(Input.Email, Input.Password, Input.RememberMe, lockoutOnFailure: false);
         if (result.Succeeded)
         {
             Logger.LogInformation("User logged in.");
+            var cpr = new Cpr
+                {
+                    User = Input.Email // Store the email here
+                };
+            
+
             RedirectManager.RedirectTo(ReturnUrl);
         }
         else if (result.RequiresTwoFactor)
@@ -125,4 +130,6 @@
         [Display(Name = "Remember me?")]
         public bool RememberMe { get; set; }
     }
+}
+
 }

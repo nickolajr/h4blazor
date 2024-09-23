@@ -4,7 +4,7 @@ using BlazorApp1.Data;
 using Microsoft.AspNetCore.Components.Authorization;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
-
+using BlazorApp1.Models;
 var builder = WebApplication.CreateBuilder(args);
 
 // Add services to the container.
@@ -26,7 +26,13 @@ builder.Services.AddAuthentication(options =>
 var connectionString = builder.Configuration.GetConnectionString("DefaultConnection") ?? throw new InvalidOperationException("Connection string 'DefaultConnection' not found.");
 builder.Services.AddDbContext<ApplicationDbContext>(options =>
     options.UseSqlServer(connectionString));
+
 builder.Services.AddDatabaseDeveloperPageExceptionFilter();
+//todo list connection string
+var TodoConnectionString = builder.Configuration.GetConnectionString("TodoConnection") ?? throw new InvalidOperationException("Connection string 'TodoConnectionString' not found.");
+builder.Services.AddDbContext<ToDoDataContext>(options =>
+    options.UseSqlServer(TodoConnectionString));
+
 
 builder.Services.AddIdentityCore<ApplicationUser>(options => options.SignIn.RequireConfirmedAccount = true)
     .AddRoles<IdentityRole>()
@@ -45,6 +51,10 @@ builder.Services.AddAuthorization(options =>
     options.AddPolicy("RequireAdministratorRole", policy =>
     {
         policy.RequireRole("Admin");
+    });
+    options.AddPolicy("RequireSuperuserRole", policy =>
+    {
+        policy.RequireRole("Super");
     });
 });
 

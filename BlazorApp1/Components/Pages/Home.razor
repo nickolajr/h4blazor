@@ -1,40 +1,85 @@
 ﻿@page "/"
+@using Microsoft.EntityFrameworkCore
+@using Models;
+@using Microsoft.AspNetCore.Authorization;
 @using Microsoft.AspNetCore.Identity;
 @inject IServiceProvider _serviceProvider;
 @inject UserManager<Data.ApplicationUser> UserManager
+@inject SignInManager<Data.ApplicationUser> SignInManager
 
+@attribute [Authorize(Policy = "AuthenticatedUser")]
 <PageTitle>Home</PageTitle>
 
 <AuthorizeView>
     <Authorized>
-        <p>You are logged in!</p>
+        <p>Cpr nummer</p>
+        <input placeholder="Cpr" @bind="cpr.CprNr" />
+        <button @onclick="AddToDb">Submit</button>
+        @if (!string.IsNullOrEmpty(errorMessage))
+        {
+            <p class="text-danger">@errorMessage</p>
+        }
     </Authorized>
-    <NotAuthorized>
-        <p>You are NOT logged in!</p>
-    </NotAuthorized>
 </AuthorizeView>
-<AuthorizeView Roles="Admin">
+
+<AuthorizeView Roles="admin">
     <Authorized>
         <p>You are admin!</p>
     </Authorized>
 </AuthorizeView>
 
 @code {
-    protected override async Task OnInitializedAsync()
+    private Cpr cpr = new Cpr();
+    private string? errorMessage;
+
+    public async Task AddToDb()
     {
-        //await CreateUserRolesAsync("nienull@gmail.com", "Admin");
+        // Only proceed if the user property is set
+        if (!string.IsNullOrEmpty(cpr.User))
+        {
+            var dbContext = _serviceProvider.GetRequiredService<ToDoDataContext>();
+
+            // Check if a CPR entry exists for the current user
+            var existingCpr = await dbContext.Cprs
+                .FirstOrDefaultAsync(x => x.User == cpr.User);
+
+            if (existingCpr.CprNr != null)
+            {
+                // Check if the CPR number matches
+                if (existingCpr.CprNr != cpr.CprNr)
+                {
+                    errorMessage = "Not correct CPR number.";
+                    return; // Exit the method if the CPR does not match
+                }
+
+                // Update the existing entry
+                existingCpr.CprNr = cpr.CprNr;
+                existingCpr.User = cpr.User;
+                dbContext.Cprs.Update(existingCpr);
+            }
+            else
+            {
+                // If no existing CPR entry, create a new one
+                existingCpr.CprNr = cpr.CprNr;
+                dbContext.Cprs.Update(existingCpr);
+            }
+
+            // Save changes to the database
+            await dbContext.SaveChangesAsync();
+
+            // Reset the CPR model and error message for the next entry
+            cpr = new Cpr();
+            errorMessage = null;
+        }
     }
 
-    public async Task CreateUserRolesAsync(string user, string role)
+    protected override async Task OnInitializedAsync()
     {
-        var roleManager = _serviceProvider.GetRequiredService<RoleManager<IdentityRole>>();
-        var userManager = UserManager;
-
-        var userRoleCheck = await roleManager.RoleExistsAsync(role);
-        if (!userRoleCheck)
-            await roleManager.CreateAsync(new IdentityRole(role));
-
-        Data.ApplicationUser identityUser = await userManager.FindByEmailAsync(user);
-        await userManager.AddToRoleAsync(identityUser, role);
+        // Retrieve the logged-in user's email
+        var user = await UserManager.GetUserAsync(SignInManager.Context.User);
+        if (user != null)
+        {
+            cpr.User = user.Email; // Set the email in the Cpr model
+        }
     }
 }
