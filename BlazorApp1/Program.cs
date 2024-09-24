@@ -64,14 +64,14 @@ builder.WebHost.UseKestrel((context, serverOptions) => {
     serverOptions.Configure(context.Configuration.GetSection("Kestrel"))
     .Endpoint("HTTPS", listenOptions => { listenOptions.HttpsOptions.SslProtocols = SslProtocols.Tls12; });
 });
-string userFolder = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
-userFolder = Path.Combine(userFolder, ".aspnet");
-userFolder = Path.Combine(userFolder, "https");
-userFolder = Path.Combine(userFolder, "Nick.pxf");
-builder.Configuration.GetSection("Kestrel:Endpoints:Https:Certificate:Path").Value = userFolder;
+//string userFolder = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+//userFolder = Path.Combine(userFolder, ".aspnet");
+//userFolder = Path.Combine(userFolder, "https");
+//userFolder = Path.Combine(userFolder, "Nick.pxf");
+//builder.Configuration.GetSection("Kestrel:Endpoints:Https:Certificate:Path").Value = userFolder;
 
-string kestrelPassword = builder.Configuration.GetValue<string>("KestrelPassword");
-builder.Configuration.GetSection("Kestrel:Endpoints:Https:Certificate:Password").Value = kestrelPassword;
+//string kestrelPassword = builder.Configuration.GetValue<string>("KestrelPassword");
+//builder.Configuration.GetSection("Kestrel:Endpoints:Https:Certificate:Password").Value = kestrelPassword;
 var app = builder.Build();
 
 // Configure the HTTP request pipeline.

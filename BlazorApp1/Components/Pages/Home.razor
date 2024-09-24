@@ -12,21 +12,43 @@
 
 <AuthorizeView>
     <Authorized>
-        <p>Cpr nummer</p>
-        <input placeholder="Cpr" @bind="cpr.CprNr" />
-        <button @onclick="AddCprToDb">Submit</button>
-        @if (!string.IsNullOrEmpty(errorMessage))
+        @if (!isCprValid)
         {
-            <p class="text-danger">@errorMessage</p>
+            <p>Cpr nummer</p>
+            <input placeholder="Cpr" @bind="cpr.CprNr" />
+            <button @onclick="ValidateCpr">Submit</button>
+            @if (!string.IsNullOrEmpty(errorMessage))
+            {
+                <p class="text-danger">@errorMessage</p>
+            }
         }
-
-        @if (isCprValid)
+        else
         {
             <div>
                 <h3>Add To-Do Item</h3>
                 <p>Item</p>
                 <input placeholder="Item" @bind="todoItem.Item" />
                 <button @onclick="AddTodoToDb">Submit To-Do</button>
+            </div>
+
+            <div>
+                <h3>Existing To-Do Items</h3>
+                @if (todoList != null && todoList.Count > 0)
+                {
+                    <ul>
+                        @foreach (var item in todoList)
+                        {
+                            <li>
+                                @item.Item
+                                <button @onclick="() => DeleteTodo(item.TodoId)">Delete</button>
+                            </li>
+                        }
+                    </ul>
+                }
+                else
+                {
+                    <p>No To-Do items found.</p>
+                }
             </div>
         }
     </Authorized>
@@ -41,47 +63,112 @@
 @code {
     private Cpr cpr = new Cpr();
     private TodoList todoItem = new TodoList();
+    private List<TodoList> todoList = new List<TodoList>();
     private string? errorMessage;
     private bool isCprValid = false;
 
-    public async Task AddCprToDb()
+    protected override async Task OnInitializedAsync()
     {
-        if (!string.IsNullOrEmpty(cpr.User))
+        var user = await UserManager.GetUserAsync(SignInManager.Context.User);
+        if (user != null)
         {
-            var dbContext = _serviceProvider.GetRequiredService<ToDoDataContext>();
-            var existingCpr = await dbContext.Cprs.FirstOrDefaultAsync(x => x.User == cpr.User);
+            cpr.User = user.Email; // Set user email for CPR model
+            await LoadCprAndTodos();
+        }
+    }
 
-            if (existingCpr != null)
+    private async Task LoadCprAndTodos()
+    {
+        var dbContext = _serviceProvider.GetRequiredService<ToDoDataContext>();
+        var existingCpr = await dbContext.Cprs.FirstOrDefaultAsync(x => x.User == cpr.User);
+
+        if (existingCpr != null)
+        {
+            cpr.Cprid = existingCpr.Cprid; // Set the Cprid
+            if (existingCpr.CprNr != null)
             {
-                if (existingCpr.CprNr != cpr.CprNr)
-                {
-                    errorMessage = "Not the correct CPR number.";
-                    isCprValid = false;
-                    return;
-                }
-
                 isCprValid = true;
-                todoItem.UserId = existingCpr.Cprid;
-                errorMessage = null;
+                todoList = await dbContext.TodoLists.Where(t => t.UserId == existingCpr.Cprid).ToListAsync();
             }
             else
             {
-                errorMessage = "CPR number not found.";
-                isCprValid = false;
+                isCprValid = false; // Prompt for CPR number
             }
+        }
+        else
+        {
+            isCprValid = false; // Prompt for CPR number
+        }
+    }
+
+    public async Task ValidateCpr()
+    {
+        var dbContext = _serviceProvider.GetRequiredService<ToDoDataContext>();
+        var existingCpr = await dbContext.Cprs.FirstOrDefaultAsync(x => x.User == cpr.User);
+
+        if (existingCpr != null)
+        {
+            if (existingCpr.CprNr == null)
+            {
+                existingCpr.CprNr = cpr.CprNr; // Update CPR number
+                dbContext.Cprs.Update(existingCpr);
+                await dbContext.SaveChangesAsync();
+            }
+            else if (existingCpr.CprNr != cpr.CprNr)
+            {
+                errorMessage = "Not the correct CPR number.";
+                isCprValid = false;
+                return;
+            }
+
+            isCprValid = true;
+            todoItem.UserId = existingCpr.Cprid; // Use the Cprid as the UserId for To-Do items
+
+            // Load existing To-Do items
+            todoList = await dbContext.TodoLists.Where(t => t.UserId == existingCpr.Cprid).ToListAsync();
+            errorMessage = null;
+        }
+        else
+        {
+            // Create a new CPR record
+            var newCpr = new Cpr { User = cpr.User, CprNr = cpr.CprNr };
+            dbContext.Cprs.Add(newCpr);
+            await dbContext.SaveChangesAsync();
+
+            isCprValid = true;
+            todoItem.UserId = newCpr.Cprid; // Set the correct UserId for the newly created CPR
+            todoList = new List<TodoList>(); // Initialize an empty To-Do list
+            errorMessage = null;
         }
     }
 
     public async Task AddTodoToDb()
     {
-        if (isCprValid && todoItem.UserId != null)
+        if (isCprValid)
         {
             var dbContext = _serviceProvider.GetRequiredService<ToDoDataContext>();
-            dbContext.TodoLists.Add(todoItem);
-            await dbContext.SaveChangesAsync();
 
-            todoItem = new TodoList();
-            errorMessage = "To-Do item added successfully!";
+            // Ensure UserId is set before adding the item
+            if (todoItem.UserId == null)
+            {
+                todoItem.UserId = (await dbContext.Cprs.FirstOrDefaultAsync(x => x.User == cpr.User))?.Cprid;
+            }
+
+            if (todoItem.UserId != null)
+            {
+                dbContext.TodoLists.Add(todoItem);
+                await dbContext.SaveChangesAsync();
+
+                // Reload the To-Do list after adding a new item
+                todoList = await dbContext.TodoLists.Where(t => t.UserId == todoItem.UserId).ToListAsync();
+
+                todoItem = new TodoList { UserId = todoItem.UserId }; // Reset the input while keeping the UserId
+                errorMessage = "To-Do item added successfully!";
+            }
+            else
+            {
+                errorMessage = "You must validate your CPR number first.";
+            }
         }
         else
         {
@@ -89,12 +176,19 @@
         }
     }
 
-    protected override async Task OnInitializedAsync()
+
+    public async Task DeleteTodo(int todoId)
     {
-        var user = await UserManager.GetUserAsync(SignInManager.Context.User);
-        if (user != null)
+        var dbContext = _serviceProvider.GetRequiredService<ToDoDataContext>();
+        var todoItemToDelete = await dbContext.TodoLists.FindAsync(todoId);
+
+        if (todoItemToDelete != null)
         {
-            cpr.User = user.Email;
+            dbContext.TodoLists.Remove(todoItemToDelete);
+            await dbContext.SaveChangesAsync();
+
+            // Reload the To-Do list after deletion
+            todoList = await dbContext.TodoLists.Where(t => t.UserId == todoItemToDelete.UserId).ToListAsync();
         }
     }
 }
