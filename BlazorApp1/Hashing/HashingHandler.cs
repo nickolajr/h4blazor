@@ -5,10 +5,10 @@ namespace BlazorApp1.Hashing
 {
     public class HashingHandler
     {
-        //can use SHA156Hashing
-        //can use hmchashing
+      
         public string HmcHashing(string TextToHash)
         {
+            //my key is key = to Encoding.ASCII.GetBytes("key");
             byte[] mykey = Encoding.ASCII.GetBytes("key");
             byte[] inputbyte = Encoding.ASCII.GetBytes(TextToHash);
             HMACSHA256 hMACSHA256 = new HMACSHA256();
