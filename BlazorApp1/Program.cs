@@ -5,6 +5,8 @@ using Microsoft.AspNetCore.Components.Authorization;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
 using BlazorApp1.Models;
+using System.Security.Authentication;
+
 var builder = WebApplication.CreateBuilder(args);
 
 // Add services to the container.
@@ -25,13 +27,14 @@ builder.Services.AddAuthentication(options =>
 
 var connectionString = builder.Configuration.GetConnectionString("DefaultConnection") ?? throw new InvalidOperationException("Connection string 'DefaultConnection' not found.");
 builder.Services.AddDbContext<ApplicationDbContext>(options =>
-    options.UseSqlServer(connectionString));
+    options.UseSqlite(connectionString));
 
 builder.Services.AddDatabaseDeveloperPageExceptionFilter();
 //todo list connection string
 var TodoConnectionString = builder.Configuration.GetConnectionString("TodoConnection") ?? throw new InvalidOperationException("Connection string 'TodoConnectionString' not found.");
 builder.Services.AddDbContext<ToDoDataContext>(options =>
-    options.UseSqlServer(TodoConnectionString));
+    options.UseSqlite(TodoConnectionString));
+
 
 
 builder.Services.AddIdentityCore<ApplicationUser>(options => options.SignIn.RequireConfirmedAccount = true)
@@ -57,7 +60,18 @@ builder.Services.AddAuthorization(options =>
         policy.RequireRole("Super");
     });
 });
+builder.WebHost.UseKestrel((context, serverOptions) => {
+    serverOptions.Configure(context.Configuration.GetSection("Kestrel"))
+    .Endpoint("HTTPS", listenOptions => { listenOptions.HttpsOptions.SslProtocols = SslProtocols.Tls12; });
+});
+string userFolder = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+userFolder = Path.Combine(userFolder, ".aspnet");
+userFolder = Path.Combine(userFolder, "https");
+userFolder = Path.Combine(userFolder, "Nick.pxf");
+builder.Configuration.GetSection("Kestrel:Endpoints:Https:Certificate:Path").Value = userFolder;
 
+string kestrelPassword = builder.Configuration.GetValue<string>("KestrelPassword");
+builder.Configuration.GetSection("Kestrel:Endpoints:Https:Certificate:Password").Value = kestrelPassword;
 var app = builder.Build();
 
 // Configure the HTTP request pipeline.

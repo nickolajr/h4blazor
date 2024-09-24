@@ -14,10 +14,20 @@
     <Authorized>
         <p>Cpr nummer</p>
         <input placeholder="Cpr" @bind="cpr.CprNr" />
-        <button @onclick="AddToDb">Submit</button>
+        <button @onclick="AddCprToDb">Submit</button>
         @if (!string.IsNullOrEmpty(errorMessage))
         {
             <p class="text-danger">@errorMessage</p>
+        }
+
+        @if (isCprValid)
+        {
+            <div>
+                <h3>Add To-Do Item</h3>
+                <p>Item</p>
+                <input placeholder="Item" @bind="todoItem.Item" />
+                <button @onclick="AddTodoToDb">Submit To-Do</button>
+            </div>
         }
     </Authorized>
 </AuthorizeView>
@@ -30,56 +40,61 @@
 
 @code {
     private Cpr cpr = new Cpr();
+    private TodoList todoItem = new TodoList();
     private string? errorMessage;
+    private bool isCprValid = false;
 
-    public async Task AddToDb()
+    public async Task AddCprToDb()
     {
-        // Only proceed if the user property is set
         if (!string.IsNullOrEmpty(cpr.User))
         {
             var dbContext = _serviceProvider.GetRequiredService<ToDoDataContext>();
+            var existingCpr = await dbContext.Cprs.FirstOrDefaultAsync(x => x.User == cpr.User);
 
-            // Check if a CPR entry exists for the current user
-            var existingCpr = await dbContext.Cprs
-                .FirstOrDefaultAsync(x => x.User == cpr.User);
-
-            if (existingCpr.CprNr != null)
+            if (existingCpr != null)
             {
-                // Check if the CPR number matches
                 if (existingCpr.CprNr != cpr.CprNr)
                 {
-                    errorMessage = "Not correct CPR number.";
-                    return; // Exit the method if the CPR does not match
+                    errorMessage = "Not the correct CPR number.";
+                    isCprValid = false;
+                    return;
                 }
 
-                // Update the existing entry
-                existingCpr.CprNr = cpr.CprNr;
-                existingCpr.User = cpr.User;
-                dbContext.Cprs.Update(existingCpr);
+                isCprValid = true;
+                todoItem.UserId = existingCpr.Cprid;
+                errorMessage = null;
             }
             else
             {
-                // If no existing CPR entry, create a new one
-                existingCpr.CprNr = cpr.CprNr;
-                dbContext.Cprs.Update(existingCpr);
+                errorMessage = "CPR number not found.";
+                isCprValid = false;
             }
+        }
+    }
 
-            // Save changes to the database
+    public async Task AddTodoToDb()
+    {
+        if (isCprValid && todoItem.UserId != null)
+        {
+            var dbContext = _serviceProvider.GetRequiredService<ToDoDataContext>();
+            dbContext.TodoLists.Add(todoItem);
             await dbContext.SaveChangesAsync();
 
-            // Reset the CPR model and error message for the next entry
-            cpr = new Cpr();
-            errorMessage = null;
+            todoItem = new TodoList();
+            errorMessage = "To-Do item added successfully!";
+        }
+        else
+        {
+            errorMessage = "You must validate your CPR number first.";
         }
     }
 
     protected override async Task OnInitializedAsync()
     {
-        // Retrieve the logged-in user's email
         var user = await UserManager.GetUserAsync(SignInManager.Context.User);
         if (user != null)
         {
-            cpr.User = user.Email; // Set the email in the Cpr model
+            cpr.User = user.Email;
         }
     }
 }
