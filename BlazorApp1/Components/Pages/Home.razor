@@ -1,13 +1,17 @@
 ﻿@page "/"
+@using BlazorApp1.Codes
 @using Microsoft.EntityFrameworkCore
-@using Models;
-@using Microsoft.AspNetCore.Authorization;
-@using Microsoft.AspNetCore.Identity;
-@inject IServiceProvider _serviceProvider;
+@using Models
+@using Microsoft.AspNetCore.Authorization
+@using Microsoft.AspNetCore.Identity
+@using System.Security.Cryptography
+@using BlazorApp1.Hashing
+@inject IServiceProvider _serviceProvider
 @inject UserManager<Data.ApplicationUser> UserManager
 @inject SignInManager<Data.ApplicationUser> SignInManager
 @inject HttpClient Http
 @inject Hashing.HashingHandler _hashingHandler
+@inject AsymetriskEncryptionHandler _encryptionHandler
 
 @attribute [Authorize(Policy = "AuthenticatedUser")]
 <PageTitle>Home</PageTitle>
@@ -37,10 +41,10 @@
                 @if (todoList != null && todoList.Count > 0)
                 {
                     <ul>
-                        @foreach (var item in decryptedTodoList)
+                        @foreach (var item in todoList)
                         {
                             <li>
-                                @item.Item
+                                @(_encryptionHandler.DecryptAsymetrisk(item.Item)) 
                                 <button @onclick="() => DeleteTodo(item.TodoId)">Delete</button>
                             </li>
                         }
@@ -55,23 +59,20 @@
     </Authorized>
 </AuthorizeView>
 
-<AuthorizeView Roles="admin">
-    <Authorized>
-        <p>You are admin!</p>
-    </Authorized>
-</AuthorizeView>
-
 @code {
     private Cpr cpr = new Cpr();
     private TodoList todoItem = new TodoList();
     private List<TodoList> todoList = new List<TodoList>();
-    private List<TodoList> decryptedTodoList = new List<TodoList>();
     private string? errorMessage;
     private bool isCprValid = false;
+    
+   
 
     protected override async Task OnInitializedAsync()
     {
-        isCprValid = false; 
+        isCprValid = false;
+        cpr.CprNr = string.Empty; 
+
         var user = await UserManager.GetUserAsync(SignInManager.Context.User);
         if (user != null)
         {
@@ -79,6 +80,24 @@
             await LoadCprAndTodos();
         }
     }
+    protected override async Task OnParametersSetAsync()
+    {
+        
+        isCprValid = false;
+        cpr.CprNr = string.Empty; 
+
+        
+        var user = await UserManager.GetUserAsync(SignInManager.Context.User);
+        if (user != null)
+        {
+            cpr.User = user.Email;
+            await LoadCprAndTodos(); 
+        }
+    }
+
+
+
+    
 
     private async Task LoadCprAndTodos()
     {
@@ -87,14 +106,11 @@
 
         if (existingCpr != null)
         {
-            cpr.Cprid = existingCpr.Cprid; 
+            cpr.Cprid = existingCpr.Cprid;
             if (existingCpr.CprNr != null)
             {
-                isCprValid = true; // Set to true if CPR number is valid
+                isCprValid = false;
                 todoList = await dbContext.TodoLists.Where(t => t.UserId == existingCpr.Cprid).ToListAsync();
-
-                // Decrypt the To-Do items by sending them to the API
-                decryptedTodoList = await DecryptTodoItems(todoList);
             }
             else
             {
@@ -107,7 +123,7 @@
         }
     }
 
-    public async Task ValidateCpr()
+    private async Task ValidateCpr()
     {
         var dbContext = _serviceProvider.GetRequiredService<ToDoDataContext>();
         var existingCpr = await dbContext.Cprs.FirstOrDefaultAsync(x => x.User == cpr.User);
@@ -118,7 +134,7 @@
         {
             if (existingCpr.CprNr == null)
             {
-                existingCpr.CprNr = hashedCprNr; 
+                existingCpr.CprNr = hashedCprNr;
                 dbContext.Cprs.Update(existingCpr);
                 await dbContext.SaveChangesAsync();
             }
@@ -131,9 +147,7 @@
 
             isCprValid = true;
             todoItem.UserId = existingCpr.Cprid;
-
             todoList = await dbContext.TodoLists.Where(t => t.UserId == existingCpr.Cprid).ToListAsync();
-            decryptedTodoList = await DecryptTodoItems(todoList); // Decrypt
             errorMessage = null;
         }
         else
@@ -149,6 +163,11 @@
         }
     }
 
+    public class EncryptRequest
+    {
+        public string TodoItem { get; set; }
+        public string PublicKey { get; set; }
+    }
     public async Task AddTodoToDb()
     {
         if (isCprValid)
@@ -162,16 +181,25 @@
 
             if (todoItem.UserId != null)
             {
-                // Encrypt the To-Do item before adding it to the DB
-                todoItem.Item = await EncryptTodoItem(todoItem.Item);
+                // Use the AsymetriskEncryptionHandler to send the encryption request
+                string encryptedItem = await _encryptionHandler.SendEncryptionRequest(todoItem.Item);
 
-                dbContext.TodoLists.Add(todoItem);
-                await dbContext.SaveChangesAsync();
+                if (encryptedItem != null)
+                {
+                    // Store the encrypted
+                    todoItem.Item = encryptedItem; // Save the encrypted item
+                    dbContext.TodoLists.Add(todoItem);
+                    await dbContext.SaveChangesAsync();
 
-                todoList = await dbContext.TodoLists.Where(t => t.UserId == todoItem.UserId).ToListAsync();
-                decryptedTodoList = await DecryptTodoItems(todoList); // Decrypt list
-                todoItem = new TodoList { UserId = todoItem.UserId }; // Reset todoItem for next entry
-                errorMessage = "To-Do item added successfully!";
+                    // Reload the Todo list
+                    todoList = await dbContext.TodoLists.Where(t => t.UserId == todoItem.UserId).ToListAsync();
+                    todoItem = new TodoList { UserId = todoItem.UserId }; // Reset todoItem for next entry
+                    errorMessage = "To-Do item added successfully!";
+                }
+                else
+                {
+                    errorMessage = "Failed to encrypt the To-Do item.";
+                }
             }
             else
             {
@@ -184,32 +212,6 @@
         }
     }
 
-    private async Task<string> EncryptTodoItem(string todoItem)
-    {
-        var response = await Http.PostAsJsonAsync("api/todo/encrypt", todoItem);
-        return await response.Content.ReadAsStringAsync();
-    }
-
-    private async Task<List<TodoList>> DecryptTodoItems(List<TodoList> encryptedTodoList)
-    {
-
-        var decryptedList = new List<TodoList>();
-
-        foreach (var encryptedItem in encryptedTodoList)
-        {
-            var response = await Http.PostAsJsonAsync("api/todo/decrypt", encryptedItem.Item);
-            var decryptedItem = await response.Content.ReadAsStringAsync();
-
-            decryptedList.Add(new TodoList
-            {
-                TodoId = encryptedItem.TodoId,
-                Item = decryptedItem,
-                UserId = encryptedItem.UserId
-            });
-        }
-
-        return decryptedList;
-    }
 
     public async Task DeleteTodo(int todoId)
     {
@@ -221,8 +223,8 @@
             dbContext.TodoLists.Remove(todoItemToDelete);
             await dbContext.SaveChangesAsync();
 
+            // Reload the ToDo list
             todoList = await dbContext.TodoLists.Where(t => t.UserId == todoItemToDelete.UserId).ToListAsync();
-            decryptedTodoList = await DecryptTodoItems(todoList); // Decrypt
         }
     }
 }
